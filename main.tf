@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "us-west-2" # Specify the AWS region
+  region = "us-east-1" # Specify the AWS region
 }
 
 resource "aws_s3_bucket" "app_data_bucket" {
