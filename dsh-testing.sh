@@ -1,7 +1,7 @@
+./dsh-testing.sh
+-------------
 #!/bin/bash
 set -e
-
-# Functions
 apply_terraform() {
   echo "Initializing Terraform..."
   if [[ "$TF_BACKEND" == "S3" ]]; then
@@ -14,37 +14,42 @@ apply_terraform() {
   echo "Applying Terraform configuration..."
   terraform apply -auto-approve
 }
-
-plan_terraform() {
-  echo "Initializing Terraform..."
-  if [[ "$TF_BACKEND" == "S3" ]]; then
-    terraform init -backend-config="bucket=${BUCKET_NAME}" \
-                   -backend-config="key=devzero/terraform.tfstate" \
-                   -backend-config="region=us-west-1"
-  else
-    terraform init
-  fi
-  echo "Running Terraform plan..."
-  terraform plan
+get_eks_info() {
+  CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
+  AWS_REGION=$(terraform output -raw region)
 }
-
+configure_kubeconfig() {
+  aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+}
+login_to_helm_registry() {
+  helm registry login registry.devzero.io --username $DZ_USERNAME --password $DZ_PASSWORD
+}
+install_devzero_crds() {
+  helm install dz-control-plane-crds oci://registry.devzero.io/devzero-control-plane/beta/dz-control-plane-crds \
+    -n devzero --create-namespace
+}
+install_devzero_control_plane() {
+  helm install dz-control-plane oci://registry.devzero.io/devzero-control-plane/beta/dz-control-plane \
+    -n devzero --set domain=$DOMAIN_NAME --set issuer.email=$EMAIL
+}
+get_ingress_service() {
+  kubectl get ingress -n devzero
+}
 cleanup() {
-  echo "Destroying Terraform resources..."
+  echo "Cleaning up resources..."
   terraform destroy -auto-approve
-  echo "Resources destroyed."
+  echo "Resources cleaned up."
 }
-
-# Main logic
-if [[ "$1" == "plan" ]]; then
-  echo "Starting Terraform plan..."
-  plan_terraform
-elif [[ "$1" == "apply" ]]; then
-  echo "Starting Terraform apply..."
+main() {
+  trap cleanup EXIT
+  cd examples/aws/control-and-data-plane
   apply_terraform
-elif [[ "$1" == "destroy" ]]; then
-  echo "Starting Terraform destroy..."
-  cleanup
-else
-  echo "Usage: $0 {plan|apply|destroy}"
-  exit 1
-fi
+  get_eks_info
+  configure_kubeconfig
+  # login_to_helm_registry
+  # install_devzero_crds
+  # install_devzero_control_plane
+  # get_ingress_service
+  echo "DevZero control plane testing completed successfully!"
+}
+main
